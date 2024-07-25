@@ -2,94 +2,94 @@ import socket
 import threading
 import time
 
-clients = {}
-pending_messages = {}
+clientes = {}
+mensagens_pendentes = {}
 
-def handle_client(conn, addr):
-    print(f"Connected by {addr}")
+def tratar_cliente(conn, addr):
+    print(f"Conectado por {addr}")
     with conn:
         while True:
-            data = conn.recv(1024)
-            if not data:
+            dados = conn.recv(1024)
+            if not dados:
                 break
-            message = data.decode('utf-8')
-            handle_message(message, conn)
+            mensagem = dados.decode('utf-8')
+            tratar_mensagem(mensagem, conn)
 
-def handle_message(message, conn):
-    code = message[:2]
-    if code == '01':
-        register_client(conn)
-    elif code == '03':
-        client_id = message[2:15]
-        connect_client(client_id, conn)
-    elif code == '05':
-        handle_send_message(message, conn)
-    elif code == '08':
-        handle_read_confirmation(message, conn)
-    elif code == '10':
-        handle_create_group(message, conn)
+def tratar_mensagem(mensagem, conn):
+    codigo = mensagem[:2]
+    if codigo == '01':
+        registrar_cliente(conn)
+    elif codigo == '03':
+        id_cliente = mensagem[2:15]
+        conectar_cliente(id_cliente, conn)
+    elif codigo == '05':
+        tratar_envio_mensagem(mensagem, conn)
+    elif codigo == '08':
+        tratar_confirmacao_leitura(mensagem, conn)
+    elif codigo == '10':
+        tratar_criacao_grupo(mensagem, conn)
 
-def register_client(conn):
-    client_id = generate_unique_id()
-    clients[client_id] = conn
-    conn.sendall(f"02{client_id}".encode('utf-8'))
+def registrar_cliente(conn):
+    id_cliente = gerar_id_unico()
+    clientes[id_cliente] = conn
+    conn.sendall(f"02{id_cliente}".encode('utf-8'))
 
-def generate_unique_id():
+def gerar_id_unico():
     return str(int(time.time() * 1000000))[-13:]
 
-def connect_client(client_id, conn):
-    clients[client_id] = conn
-    if client_id in pending_messages:
-        for message in pending_messages[client_id]:
-            conn.sendall(message.encode('utf-8'))
-        del pending_messages[client_id]
+def conectar_cliente(id_cliente, conn):
+    clientes[id_cliente] = conn
+    if id_cliente in mensagens_pendentes:
+        for mensagem in mensagens_pendentes[id_cliente]:
+            conn.sendall(mensagem.encode('utf-8'))
+        del mensagens_pendentes[id_cliente]
 
-def handle_send_message(message, conn):
-    src = message[2:15]
-    dst = message[15:28]
-    timestamp = message[28:38]
-    data = message[38:]
-    if dst in clients:
-        clients[dst].sendall(f"06{message}".encode('utf-8'))
-        conn.sendall(f"07{dst}{timestamp}".encode('utf-8'))
+def tratar_envio_mensagem(mensagem, conn):
+    origem = mensagem[2:15]
+    destino = mensagem[15:28]
+    timestamp = mensagem[28:38]
+    dados = mensagem[38:]
+    if destino in clientes:
+        clientes[destino].sendall(f"06{mensagem}".encode('utf-8'))
+        conn.sendall(f"07{destino}{timestamp}".encode('utf-8'))
     else:
-        if dst not in pending_messages:
-            pending_messages[dst] = []
-        pending_messages[dst].append(message)
-        conn.sendall(f"07{dst}{timestamp}".encode('utf-8'))
+        if destino not in mensagens_pendentes:
+            mensagens_pendentes[destino] = []
+        mensagens_pendentes[destino].append(mensagem)
+        conn.sendall(f"07{destino}{timestamp}".encode('utf-8'))
 
-def handle_read_confirmation(message, conn):
-    src = message[2:15]
-    timestamp = message[15:25]
-    for client_id, messages in pending_messages.items():
-        messages[:] = [msg for msg in messages if msg[2:15] != src or msg[28:38] > timestamp]
-    conn.sendall(f"09{src}{timestamp}".encode('utf-8'))
+def tratar_confirmacao_leitura(mensagem, conn):
+    origem = mensagem[2:15]
+    timestamp = mensagem[15:25]
+    for id_cliente, mensagens in mensagens_pendentes.items():
+        mensagens[:] = [msg for msg in mensagens if msg[2:15] != origem or msg[28:38] > timestamp]
+    conn.sendall(f"09{origem}{timestamp}".encode('utf-8'))
 
-def handle_create_group(message, conn):
-    group_id = generate_unique_id()
-    creator = message[2:15]
-    timestamp = message[15:25]
-    members = [message[i:i+13] for i in range(25, len(message), 13)]
-    group_message = f"11{group_id}{timestamp}{''.join(members + [creator])}"
-    for member in members + [creator]:
-        if member in clients:
-            clients[member].sendall(group_message.encode('utf-8'))
+def tratar_criacao_grupo(mensagem, conn):
+    id_grupo = gerar_id_unico()
+    criador = mensagem[2:15]
+    timestamp = mensagem[15:25]
+    membros = [mensagem[i:i+13] for i in range(25, len(mensagem), 13)]
+    mensagem_grupo = f"11{id_grupo}{timestamp}{''.join(membros + [criador])}"
+    for membro in membros + [criador]:
+        if membro in clientes:
+            clientes[membro].sendall(mensagem_grupo.encode('utf-8'))
         else:
-            if member not in pending_messages:
-                pending_messages[member] = []
-            pending_messages[member].append(group_message)
-
-def start_server():
+            if membro not in mensagens_pendentes:
+                mensagens_pendentes[membro] = []
+            mensagens_pendentes[membro].append(mensagem_grupo)
+    
+def iniciar_servidor():
     host = '127.0.0.1'
     port = 65432
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind((host, port))
         s.listen()
-        print("Server started, waiting for connections...")
+        print("Servidor iniciado, esperando conexões...")
         while True:
             conn, addr = s.accept()
-            thread = threading.Thread(target=handle_client, args=(conn, addr))
+            thread = threading.Thread(target=tratar_cliente, args=(conn, addr))
             thread.start()
 
 if __name__ == "__main__":
-    start_server()
+    iniciar_servidor()
